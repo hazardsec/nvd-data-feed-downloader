@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
+
+import argparse
+import requests
+import os
+try: 
+    import argcomplete
+except ImportError: 
+    argcomplete = None
+import datetime
+
+parser = argparse.ArgumentParser(description="Program for automating NVD downloads")
+task_types_subparsers = parser.add_subparsers(help="Task Types or Sub-Command (type sub-command -h or --help for more info)", dest="task_type")
+# Sub-commands
+download_parser = task_types_subparsers.add_parser("download", help="Task for downloading NVD JSON Data Feeds")
+download_options_group = download_parser.add_argument_group('Download Optional Modifiers')
+delete_parser = task_types_subparsers.add_parser("delete", help="Task for importing NVD JSON Data Feeds")
+delete_options_group = delete_parser.add_argument_group('Delete Optional Modifiers')
+
+# Sub-command options
+download_options_group.add_argument("--use-defaults", dest="download_defaults", default=False, action="store_true", help="Use default values for download")
+download_options_group.add_argument("--incremental", dest="incremental", default=False, action="store_true", help="Only download the recent and modified NVD JSON Data Feeds")
+delete_options_group.add_argument("--use-defaults", dest="delete_defaults", default=False, action="store_true", help="Use default values for delete")
+delete_options_group.add_argument("--incremental", dest="incremental", default=False, action="store_true", help="Only import the recent and modified NVD JSON Data Feeds")
+
+if argcomplete is not None:
+    argcomplete.autocomplete(parser)
+
+args = parser.parse_args()
+
+def fill_params():
+    params = {}
+    params["base_download_path"] = "./downloads/"
+    params["file_prefix"] = "nvdcve-1.1-"
+    params["file_suffix"] = ".json.gz"
+    params["base_url"] = "https://nvd.nist.gov/feeds/json/cve/1.1/"
+    if not use_defaults:
+        if input("\n\nWould you like to [c]ustomize the parameters used for the download or use [d]efaults?:\n") not in ["d","D"]:
+            params["base_download_path"] = (input("\nSpecify directory for the NVD JSON Data Feeds [" + params["base_download_path"] + "]:\n") or params["base_download_path"])
+            params["file_prefix"] = (input("Specify the file prefix for the data feeds [" + params["file_prefix"] + "]:\n") or params["file_prefix"])
+            params["file_suffix"] = (input("Specify the file suffix for the data feeds [" + params["file_suffix"] + "]:\n") or params["file_suffix"])
+            params["base_url"] = (input("Specify base url for data feeds [" + params["base_url"] + "]:\n") or params["base_url"])
+    
+    return params
+
+def download_file(base_url, base_path, file_name):
+    file = requests.get(base_url + file_name)
+    with open(base_path + file_name, "wb") as f:
+        f.write(file.content)
+
+def delete_feeds():
+    params = fill_params()    
+
+    if not incremental:
+        for year in years:
+            file_name = params["file_prefix"] + str(year) + params["file_suffix"]
+            if os.path.exists(params["base_download_path"] + file_name):
+                os.remove(params["base_download_path"] + file_name)
+
+    file_name = params["file_prefix"] + "recent" + params["file_suffix"]
+    if os.path.exists(params["base_download_path"] + file_name):
+        os.remove(params["base_download_path"] + file_name)
+
+    file_name = params["file_prefix"] + "modified" + params["file_suffix"]
+    if os.path.exists(params["base_download_path"] + file_name):
+        os.remove(params["base_download_path"] + file_name)
+
+def download_feeds():
+    params = fill_params()    
+
+    os.makedirs(os.path.dirname(params["base_download_path"]), exist_ok=True)
+    if not incremental:
+        for year in years:
+            file_name = params["file_prefix"] + str(year) + params["file_suffix"]
+            download_file(params["base_url"], params["base_download_path"], file_name)
+
+    file_name = params["file_prefix"] + "recent" + params["file_suffix"]
+    download_file(params["base_url"], params["base_download_path"], file_name)
+
+    file_name = params["file_prefix"] + "modified" + params["file_suffix"]
+    download_file(params["base_url"], params["base_download_path"], file_name)
+
+if __name__ == "__main__":
+    try:
+        years = list(range(2002, datetime.date.today().year+1))
+        input_response = ""
+        use_defaults = False
+        incremental = False
+        if args.task_type == "download":
+            use_defaults = args.download_defaults
+            incremental = args.incremental
+        elif args.task_type == "delete":
+            use_defaults = args.delete_defaults
+            incremental = args.incremental
+        else:
+            print("Missing task type or sub-command for help use -h or --help!")
+        
+        method_name = args.task_type + "_feeds"
+        possibles = globals().copy()
+        possibles.update(locals())
+        method = possibles.get(method_name)
+        if not method:
+            raise NotImplementedError("Method %s not implemented" % method_name)                  
+        method()
+    except Exception as e:
+        # TODO: add logging code
+        raise
